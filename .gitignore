@@ -2,5 +2,5 @@
 .idea
 .env
 .command
-.csv
-.xml
+*.csv
+*.xml
