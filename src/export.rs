@@ -158,8 +158,8 @@ fn cmp_f64(a: &f64, b: &f64) -> Ordering {
     return Ordering::Equal;
 }
 
-fn get_voucher_type(voucher_type: &str) -> String {
-    match voucher_type {
+fn get_voucher_type(voucher_type: &str, voucher_type_map:&Vec<NameMap>) -> String {
+    let vtype = match voucher_type {
         "SALE" => "Sales".to_string(),
         "CREDIT_NOTE" => "Credit Note".to_string(),
         "PURCHASE" => "Purchase".to_string(),
@@ -169,12 +169,18 @@ fn get_voucher_type(voucher_type: &str) -> String {
         "JOURNAL" => "Journal".to_string(),
         "CONTRA" => "Contra".to_string(),
         _ => panic!("Invalid voucher type found"),
-    }
+    };
+    let voucher_type_name = if let Some(name) = voucher_type_map.iter().find(|x|x.auditplus == vtype) {
+        name.tally.clone()
+    } else {
+        vtype
+    };
+    voucher_type_name
 }
 
-fn get_name_map(alias_str: String) -> Vec<NameMap> {
+fn get_name_map(map_str: String) -> Vec<NameMap> {
     let mut alias: Vec<NameMap> = Vec::new();
-    let mut rdr = csv::Reader::from_reader(alias_str.as_bytes());
+    let mut rdr = csv::Reader::from_reader(map_str.as_bytes());
     for result in rdr.deserialize() {
         let record: NameMap = result.unwrap();
         alias.push(record);
@@ -182,13 +188,14 @@ fn get_name_map(alias_str: String) -> Vec<NameMap> {
     alias
 }
 
-pub async fn export_data(db: &Database, alias_str: String, from_date: NaiveDate, to_date: NaiveDate) -> ExportData {
+pub async fn export_data(db: &Database, account_map_str: String, voucher_type_map_str: String, from_date: NaiveDate, to_date: NaiveDate) -> ExportData {
     let date_time = from_date.and_time(NaiveTime::from_hms(0, 0, 0));
     let from_date = Utc.from_utc_datetime(&date_time);
     let date_time = to_date.and_time(NaiveTime::from_hms(0, 0, 0));
     let to_date = Utc.from_utc_datetime(&date_time);
 
-    let name_map = get_name_map(alias_str);
+    let account_map = get_name_map(account_map_str);
+    let voucher_type_map = get_name_map(voucher_type_map_str);
     //"voucherType":{"$in":["CONTRA","PAYMENT","RECEIPT","JOURNAL"]}
     let pipeline = vec![
         doc! {"$match": {"date": { "$gte": from_date, "$lte": to_date }}},
@@ -248,7 +255,7 @@ pub async fn export_data(db: &Database, alias_str: String, from_date: NaiveDate,
             .collect::<Vec<AGVoucher>>();
         for voucher in vouchers.iter() {
             let date = voucher.date.to_string();
-            let voucher_type_name = get_voucher_type(voucher.voucher_type.as_str());
+            let voucher_type_name = get_voucher_type(voucher.voucher_type.as_str(), &voucher_type_map);
             let voucher_no = voucher.voucher_no.clone();
             let ref_no = voucher.ref_no.clone();
             let ref_date = voucher.bill_date.clone();
@@ -258,7 +265,7 @@ pub async fn export_data(db: &Database, alias_str: String, from_date: NaiveDate,
             for trn in voucher.trns.iter() {
                 let account_doc = accounts.iter().find(|x| x.get_str("id").unwrap() == trn.account).unwrap();
                 let account_name = account_doc.get_str("displayName").unwrap().to_string();
-                let account_name = if let Some(name) = name_map.iter().find(|x|x.auditplus == account_name) {
+                let account_name = if let Some(name) = account_map.iter().find(|x|x.auditplus == account_name) {
                     name.tally.clone()
                 } else {
                     account_name
