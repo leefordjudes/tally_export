@@ -230,7 +230,7 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
                 "description": 1,
         }}
     ];
-    let find_options = FindOptions::builder().projection(doc!{"_id":0,"displayName":1,"id": {"$toString":"$_id"}}).build();
+    let find_options = FindOptions::builder().projection(doc!{"_id":0,"name":1,"id": {"$toString":"$_id"}}).build();
     let accounts = db.collection::<Document>("accounts")
         .find(doc!{}, find_options)
         .await
@@ -264,7 +264,7 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
             let mut party_ledgers = Vec::new();
             for trn in voucher.trns.iter() {
                 let account_doc = accounts.iter().find(|x| x.get_str("id").unwrap() == trn.account).unwrap();
-                let account_name = account_doc.get_str("displayName").unwrap().to_string();
+                let account_name = account_doc.get_str("name").unwrap().to_string();
                 let account_name = if let Some(name) = account_map.iter().find(|x|x.auditplus == account_name) {
                     name.tally.clone()
                 } else {
