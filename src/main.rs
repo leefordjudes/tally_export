@@ -1,7 +1,6 @@
 use std::{
     path::PathBuf,
-    fs::{File, read_to_string},
-    io::Write
+    fs::read_to_string,
 };
 use clap::Parser;
 use chrono::NaiveDate;
@@ -45,9 +44,6 @@ async fn main() {
     };
     let client = Client::with_options(client_options).unwrap();
     let db = client.database(&org);
-    let data = export_data(&db, account_map, voucher_type_map, from_date, to_date).await;
-    let options = xml_serde::Options { include_schema_location: false };
-    let res = xml_serde::to_string_custom(&data, options).unwrap();
-    let mut file = File::create("tally_data.xml").unwrap();
-    file.write_all(res.as_bytes()).unwrap();
+    let _  = export_data(&db, account_map, voucher_type_map, from_date, to_date).await;
+
 }
