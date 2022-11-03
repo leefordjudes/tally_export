@@ -114,13 +114,13 @@ pub struct Voucher {
     #[serde(rename = "PARTYLEDGERNAME")]
     pub party_ledger: String,
     #[serde(rename = "VOUCHERNUMBER")]
-    pub voucher_no: String,
+    pub voucher_no: Option<String>,
     #[serde(rename = "ALLLEDGERENTRIES.LIST")]
     pub ledger_entries: Vec<LedgerEntry>,
 }
 
 impl Voucher {
-    pub fn new(date:String, ref_no: Option<String>, ref_date: Option<String>, voucher_type: String, party_ledger: String, voucher_no: String, ledger_entries: Vec<LedgerEntry>) -> Self {
+    pub fn new(date:String, ref_no: Option<String>, ref_date: Option<String>, voucher_type: String, party_ledger: String, voucher_no: Option<String>, ledger_entries: Vec<LedgerEntry>) -> Self {
         Self {date, ref_no, ref_date, voucher_type, party_ledger, voucher_no, ledger_entries}
     }
 }
@@ -147,7 +147,7 @@ pub struct AGVoucher {
     pub ref_no: Option<String>,
     pub narration: Option<String>,
     pub voucher_type: String,
-    pub voucher_no: String,
+    pub voucher_no: Option<String>,
     pub trns: Vec<Transaction>,
     pub lut: Option<bool>,
     pub rcm: Option<bool>,
@@ -209,22 +209,33 @@ fn get_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveD
     dates
 }
 
-async fn get_voucher_data(db: &Database, collection: &str, from_date: NaiveDate,to_date: NaiveDate) -> Vec<AGVoucher> {
+fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date: NaiveDate) -> Vec<Document> {
     let date_time = from_date.and_time(NaiveTime::from_hms(0, 0, 0));
     let from_date = Utc.from_utc_datetime(&date_time);
     let date_time = to_date.and_time(NaiveTime::from_hms(0, 0, 0));
     let to_date = Utc.from_utc_datetime(&date_time);
-    //"voucherType":{"$in":["CONTRA","PAYMENT","RECEIPT","JOURNAL"]}
+
+    let match_doc = if collection == "sales" {
+        doc! {
+            "date": { "$gte": from_date, "$lte": to_date },
+            "$or": [
+                {"transactionMode": "credit"},
+                {"partyGst.regType": {
+                    "$in": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
+                }},
+            ],
+        }
+    } else {
+        doc! {"date": { "$gte": from_date, "$lte": to_date }}
+    };
     let pipeline = vec![
-        doc! {"$match": {"date": { "$gte": from_date, "$lte": to_date }}},
+        doc! {"$match": match_doc},
         doc! {"$project": {
                 "_id": 0,
                 "voucherNo": 1,
                 "voucherType": 1,
                 "refNo": 1,
-                // "date": "20220401",
                 "date": {"$dateToString": { "format": "%Y%m%d", "date": "$date" }},
-                // "billDate": "20220401",
                 "billDate": {"$dateToString": { "format": "%Y%m%d", "date": "$billDate" }},
                 "trns": {
                     "$map": {
@@ -248,10 +259,74 @@ async fn get_voucher_data(db: &Database, collection: &str, from_date: NaiveDate,
                 "description": 1,
         }}
     ];
+    let cash_sale = vec![
+        doc! {"$match": {
+            "date": { "$gte": from_date, "$lte": to_date },
+            "$or": [
+                {"transactionMode": "cash"},
+                {"partyGst.regType": {
+                    "$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
+                }}
+            ],
+        }},
+        doc! {"$project": {
+            "_id": 0,
+            "voucherNo": 1,
+            "voucherType": 1,
+            "date": { "$dateToString": { "format": "%Y%m%d", "date": "$date" } },
+            "acTrns": {
+                "$map": {
+                    "input": {
+                        "$filter": {
+                            "input": "$acTrns",
+                            "as": "trn",
+                            "cond": { "$ne": ["$$trn.accountType", "STOCK"] }
+                        }
+                    },
+                    "as": "trn",
+                    "in": {
+                        "account": "$$trn.account",
+                        "accountType": "$$trn.accountType",
+                        "amount": { "$subtract": ["$$trn.credit", "$$trn.debit"] },
+                    }
+                }
+            },
+        }},
+        doc! {"$unwind": "$acTrns"},
+        doc! {"$set": {
+            "account": "$acTrns.account",
+            "amount": "$acTrns.amount",
+            "accountType": "$acTrns.accountType"
+        }},
+        doc! {"$group": {
+            "_id": { "voucherType": "$voucherType", "date": "$date", "account": "$account", "accountType": "$accountType" },
+            "amount": { "$sum": "$amount" }
+        }},
+        doc! {"$group": {
+            "_id": { "voucherType": "$_id.voucherType", "date": "$_id.date" },
+            "trns": { "$push": { "account": {"$toString":"$_id.account"}, "accountType": "$_id.accountType", "amount": {"$round":["$amount",2]} } }
+        }},
+        doc! {"$project": {
+            "_id": 0,
+            "trns": 1,
+            "date": "$_id.date",
+            "voucherType": "$_id.voucherType"
+        }},
+        doc! {"$sort": { "voucherType": 1, "date": 1 }}
+    ];
+    if collection == "sales" && cash.unwrap_or_default() == true {
+        cash_sale
+    } else {
+        pipeline
+    }
+}
+
+async fn get_voucher_data(db: &Database, collection: &str, cash: Option<bool>, from_date: NaiveDate,to_date: NaiveDate) -> Vec<AGVoucher> {
+    let query = get_query(collection, cash, from_date, to_date);
     let options = AggregateOptions::builder().allow_disk_use(true).build();
     let vouchers = db
         .collection::<Document>(collection)
-        .aggregate(pipeline.clone(), options.clone())
+        .aggregate(query, options)
         .await
         .unwrap()
         .try_collect::<Vec<Document>>()
@@ -281,7 +356,15 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
         let mut tally_messages = Vec::new();
         let collections = vec!["vouchers","sales","purchases","gst_vouchers"];
         for collection in collections {
-            let vouchers = get_voucher_data(db, collection, dt.0, dt.1).await;
+            let vouchers = if collection == "sales" {
+                let cash_sale = get_voucher_data(db, collection, Some(true),dt.0, dt.1).await;
+                println!("cash sale: {:?}", cash_sale.len());
+                let credit_sale = get_voucher_data(db, collection, None,dt.0, dt.1).await;
+                println!("credit sale:{:?}", credit_sale.len());
+                [cash_sale.to_vec(), credit_sale.to_vec()].concat()
+            } else {
+                get_voucher_data(db, collection, None,dt.0, dt.1).await
+            };
             println!("{}: {:?}", collection, vouchers.len());
             for voucher in vouchers.iter() {
                 let date = voucher.date.to_string();
