@@ -350,7 +350,8 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
         .try_collect::<Vec<Document>>()
         .await
         .unwrap();
-    let dates = get_dates(from_date, to_date);
+    // let dates = get_dates(from_date, to_date);
+    let dates = vec![(from_date, to_date)];
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
