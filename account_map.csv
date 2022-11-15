@@ -1,2 +1,27 @@
 auditplus,tally
-Vijay Pharma,Tally Pharma
+Direct Income,Direct Incomes
+Indirect Income,Indirect Incomes
+Sale,Sales Accounts
+Direct Expense,Direct Expenses
+Indirect Expense,Indirect Expenses
+Purchase,Purchase
+Fixed Asset,Fixed Asset
+Current Asset,Current Assets
+LongTerm Liability, Loans(Liability)
+Current Liability, Current Liabilities
+Equity, Capital Account
+Cash, Cash-in-Hand
+Stock, Current Assets
+Undeposited Funds, Current Assets
+Bank Account, Bank Accounts
+Bank OD Account, Bank OD A/c
+GST Payable, Duties and Taxes
+GST Receivable, Duties and Taxes
+EFT Account, Current Assets
+Payable, Current Liabilities
+Receivable, Current Assets
+Account Payable, Current Liabilities
+Account Receivable, Current Assets
+Trade Payable, Sundry creditors
+Trade Receivable, Sundry debtors
+Branch Transfer, Branch/ Divisions
