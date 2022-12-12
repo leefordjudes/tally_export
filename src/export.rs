@@ -1,22 +1,17 @@
-use std::cmp::Ordering;
-use std::{
-    fs::File,
-    io::Write
-};
-use serde::{Serialize, Deserialize};
-use chrono::{NaiveDate, NaiveTime, TimeZone, Utc, Datelike, Duration,};
+use chrono::{Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use futures::TryStreamExt;
 use mongodb::{
+    bson::{doc, from_document, oid::ObjectId, Document},
+    options::{AggregateOptions, FindOptions},
     Database,
-    bson::{doc, Document, from_document}
 };
-use mongodb::options::{AggregateOptions, FindOptions};
-
+use serde::{Deserialize, Serialize};
+use std::{cmp::Ordering, fs::File, io::Write};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct ExportData {
-    pub envelope: Envelope
+    pub envelope: Envelope,
 }
 impl ExportData {
     pub fn new(envelope: Envelope) -> Self {
@@ -26,7 +21,7 @@ impl ExportData {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Envelope {
-    pub body: Body
+    pub body: Body,
 }
 impl Envelope {
     pub fn new(body: Body) -> Self {
@@ -37,7 +32,7 @@ impl Envelope {
 #[serde(rename_all = "UPPERCASE")]
 pub struct Body {
     #[serde(rename = "IMPORTDATA")]
-    pub import_data: ImportData
+    pub import_data: ImportData,
 }
 impl Body {
     pub fn new(import_data: ImportData) -> Self {
@@ -49,7 +44,7 @@ impl Body {
 #[serde(rename_all = "UPPERCASE")]
 pub struct ImportData {
     #[serde(rename = "REQUESTDATA")]
-    pub request_data: RequestData
+    pub request_data: RequestData,
 }
 impl ImportData {
     pub fn new(request_data: RequestData) -> Self {
@@ -61,7 +56,7 @@ impl ImportData {
 #[serde(rename_all = "UPPERCASE")]
 pub struct RequestData {
     #[serde(rename = "TALLYMESSAGE")]
-    pub items: Vec<TallyMessage>
+    pub items: Vec<TallyMessage>,
 }
 impl RequestData {
     pub fn new(items: Vec<TallyMessage>) -> Self {
@@ -73,11 +68,13 @@ impl RequestData {
 #[serde(rename_all = "UPPERCASE")]
 pub struct TallyMessage {
     #[serde(rename = "VOUCHER")]
-    pub items: Vec<Voucher>
+    pub items: Vec<Voucher>,
 }
 impl TallyMessage {
     pub fn new(voucher: Voucher) -> Self {
-        Self {items:vec![voucher] }
+        Self {
+            items: vec![voucher],
+        }
     }
 }
 
@@ -95,7 +92,11 @@ impl LedgerEntry {
     pub fn new(ledger_name: String, amount: f64) -> Self {
         Self {
             ledger_name,
-            is_deemed_positive: if amount < 0.0 { "Yes".to_string() } else {"No".to_string()},
+            is_deemed_positive: if amount < 0.0 {
+                "Yes".to_string()
+            } else {
+                "No".to_string()
+            },
             amount,
         }
     }
@@ -120,8 +121,24 @@ pub struct Voucher {
 }
 
 impl Voucher {
-    pub fn new(date:String, ref_no: Option<String>, ref_date: Option<String>, voucher_type: String, party_ledger: String, voucher_no: Option<String>, ledger_entries: Vec<LedgerEntry>) -> Self {
-        Self {date, ref_no, ref_date, voucher_type, party_ledger, voucher_no, ledger_entries}
+    pub fn new(
+        date: String,
+        ref_no: Option<String>,
+        ref_date: Option<String>,
+        voucher_type: String,
+        party_ledger: String,
+        voucher_no: Option<String>,
+        ledger_entries: Vec<LedgerEntry>,
+    ) -> Self {
+        Self {
+            date,
+            ref_no,
+            ref_date,
+            voucher_type,
+            party_ledger,
+            voucher_no,
+            ledger_entries,
+        }
     }
 }
 
@@ -162,7 +179,7 @@ fn cmp_f64(a: &f64, b: &f64) -> Ordering {
     return Ordering::Equal;
 }
 
-fn get_voucher_type(voucher_type: &str, voucher_type_map:&Vec<NameMap>) -> String {
+fn get_voucher_type(voucher_type: &str, voucher_type_map: &Vec<NameMap>) -> String {
     let vtype = match voucher_type {
         "SALE" => "Sales".to_string(),
         "CREDIT_NOTE" => "Credit Note".to_string(),
@@ -174,11 +191,12 @@ fn get_voucher_type(voucher_type: &str, voucher_type_map:&Vec<NameMap>) -> Strin
         "CONTRA" => "Contra".to_string(),
         _ => panic!("Invalid voucher type found"),
     };
-    let voucher_type_name = if let Some(name) = voucher_type_map.iter().find(|x|x.auditplus == vtype) {
-        name.tally.clone()
-    } else {
-        vtype
-    };
+    let voucher_type_name =
+        if let Some(name) = voucher_type_map.iter().find(|x| x.auditplus == vtype) {
+            name.tally.clone()
+        } else {
+            vtype
+        };
     voucher_type_name
 }
 
@@ -194,7 +212,7 @@ fn get_name_map(map_str: String) -> Vec<NameMap> {
 
 fn get_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
     let days = (to_date - from_date).num_days() + 1;
-    let mut dates:Vec<(NaiveDate, NaiveDate)> = vec![];
+    let mut dates: Vec<(NaiveDate, NaiveDate)> = vec![];
     if days == 1 {
         dates.push((from_date, to_date))
     } else if days > 1 {
@@ -209,7 +227,12 @@ fn get_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveD
     dates
 }
 
-fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date: NaiveDate) -> Vec<Document> {
+fn get_query(
+    collection: &str,
+    cash: Option<bool>,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) -> Vec<Document> {
     let date_time = from_date.and_time(NaiveTime::from_hms(0, 0, 0));
     let from_date = Utc.from_utc_datetime(&date_time);
     let date_time = to_date.and_time(NaiveTime::from_hms(0, 0, 0));
@@ -223,6 +246,7 @@ fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date
                 {"partyGst.regType": {
                     "$in": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
                 }},
+                {"cashAmount":{"$exists": false}}
             ],
         }
     } else {
@@ -257,17 +281,20 @@ fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date
                 "rcm": 1,
                 "lut": 1,
                 "description": 1,
-        }}
+        }},
     ];
     let cash_sale = vec![
         doc! {"$match": {
             "date": { "$gte": from_date, "$lte": to_date },
-            "$or": [
+            "$or":[
                 {"transactionMode": "cash"},
                 {"partyGst.regType": {
                     "$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
                 }}
             ],
+            "creditAmount":{"$exists": false},
+            "bankAmount":{"$exists": false},
+            "eftAmount":{"$exists": false}
         }},
         doc! {"$project": {
             "_id": 0,
@@ -312,7 +339,7 @@ fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date
             "date": "$_id.date",
             "voucherType": "$_id.voucherType"
         }},
-        doc! {"$sort": { "voucherType": 1, "date": 1 }}
+        doc! {"$sort": { "voucherType": 1, "date": 1 }},
     ];
     if collection == "sales" && cash.unwrap_or_default() == true {
         cash_sale
@@ -321,7 +348,13 @@ fn get_query(collection: &str, cash: Option<bool>, from_date: NaiveDate, to_date
     }
 }
 
-async fn get_voucher_data(db: &Database, collection: &str, cash: Option<bool>, from_date: NaiveDate,to_date: NaiveDate) -> Vec<AGVoucher> {
+async fn get_voucher_data(
+    db: &Database,
+    collection: &str,
+    cash: Option<bool>,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) -> Vec<AGVoucher> {
     let query = get_query(collection, cash, from_date, to_date);
     let options = AggregateOptions::builder().allow_disk_use(true).build();
     let vouchers = db
@@ -338,13 +371,22 @@ async fn get_voucher_data(db: &Database, collection: &str, cash: Option<bool>, f
     vouchers
 }
 
-pub async fn export_data(db: &Database, account_map_str: String, voucher_type_map_str: String, from_date: NaiveDate, to_date: NaiveDate) {
+pub async fn export_data(
+    db: &Database,
+    account_map_str: String,
+    voucher_type_map_str: String,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) {
     let account_map = get_name_map(account_map_str);
     let voucher_type_map = get_name_map(voucher_type_map_str);
 
-    let find_options = FindOptions::builder().projection(doc!{"_id":0,"name":1,"id": {"$toString":"$_id"}}).build();
-    let accounts = db.collection::<Document>("accounts")
-        .find(doc!{}, find_options)
+    let find_options = FindOptions::builder()
+        .projection(doc! {"_id":0,"name":1,"id": {"$toString":"$_id"}})
+        .build();
+    let accounts = db
+        .collection::<Document>("accounts")
+        .find(doc! {}, find_options)
         .await
         .unwrap()
         .try_collect::<Vec<Document>>()
@@ -355,21 +397,23 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
-        let collections = vec!["vouchers","sales","purchases","gst_vouchers"];
+        let collections = vec!["vouchers", "sales", "purchases", "gst_vouchers"];
+        // let collections = vec!["sales"];
         for collection in collections {
             let vouchers = if collection == "sales" {
-                let cash_sale = get_voucher_data(db, collection, Some(true),dt.0, dt.1).await;
+                let cash_sale = get_voucher_data(db, collection, Some(true), dt.0, dt.1).await;
                 println!("cash sale: {:?}", cash_sale.len());
-                let credit_sale = get_voucher_data(db, collection, None,dt.0, dt.1).await;
+                let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
                 println!("credit sale:{:?}", credit_sale.len());
                 [cash_sale.to_vec(), credit_sale.to_vec()].concat()
             } else {
-                get_voucher_data(db, collection, None,dt.0, dt.1).await
+                get_voucher_data(db, collection, None, dt.0, dt.1).await
             };
             println!("{}: {:?}", collection, vouchers.len());
             for voucher in vouchers.iter() {
                 let date = voucher.date.to_string();
-                let voucher_type_name = get_voucher_type(voucher.voucher_type.as_str(), &voucher_type_map);
+                let voucher_type_name =
+                    get_voucher_type(voucher.voucher_type.as_str(), &voucher_type_map);
                 let voucher_no = voucher.voucher_no.clone();
                 let ref_no = voucher.ref_no.clone();
                 let ref_date = voucher.bill_date.clone();
@@ -377,9 +421,14 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
                 let mut ledger_entries = Vec::new();
                 let mut party_ledgers = Vec::new();
                 for trn in voucher.trns.iter() {
-                    let account_doc = accounts.iter().find(|x| x.get_str("id").unwrap() == trn.account).unwrap();
+                    let account_doc = accounts
+                        .iter()
+                        .find(|x| x.get_str("id").unwrap() == trn.account)
+                        .unwrap();
                     let account_name = account_doc.get_str("name").unwrap().to_string();
-                    let account_name = if let Some(name) = account_map.iter().find(|x|x.auditplus == account_name) {
+                    let account_name = if let Some(name) =
+                        account_map.iter().find(|x| x.auditplus == account_name)
+                    {
                         name.tally.clone()
                     } else {
                         account_name
@@ -393,16 +442,29 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
                     if ["Payment"].contains(&voucher_type_name.as_str()) && amount < 0.0 {
                         party_ledger_name = account_name.clone();
                     }
-                    if ["TRADE_RECEIVABLE","TRADE_PAYABLE","ACCOUNT_RECEIVABLE","ACCOUNT_PAYABLE","CASH","BANK_ACCOUNT","BANK_OD_ACCOUNT","EFT_ACCOUNT"].contains(&trn.account_type.as_str()) {
+                    if [
+                        "TRADE_RECEIVABLE",
+                        "TRADE_PAYABLE",
+                        "ACCOUNT_RECEIVABLE",
+                        "ACCOUNT_PAYABLE",
+                        "CASH",
+                        "BANK_ACCOUNT",
+                        "BANK_OD_ACCOUNT",
+                        "EFT_ACCOUNT",
+                    ]
+                    .contains(&trn.account_type.as_str())
+                    {
                         let mut party_ledger = ledger.clone();
                         party_ledger.amount = party_ledger.amount.abs();
                         party_ledgers.push(party_ledger);
                     }
                 }
-                if ["Journal"].contains(&voucher_type_name.as_str())  {
+                if ["Journal"].contains(&voucher_type_name.as_str()) {
                     party_ledger_name = ledger_entries.first().clone().unwrap().ledger_name.clone();
                 }
-                if ["Sales", "Purchase", "Credit Note", "Debit Note" ].contains(&voucher_type_name.as_str()) {
+                if ["Sales", "Purchase", "Credit Note", "Debit Note"]
+                    .contains(&voucher_type_name.as_str())
+                {
                     party_ledgers.sort_by(|a, b| cmp_f64(&b.amount, &a.amount));
                     party_ledger_name = party_ledgers.first().clone().unwrap().ledger_name.clone();
                     party_ledgers.clear();
@@ -410,7 +472,15 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
                 if !["Journal"].contains(&voucher_type_name.as_str()) {
                     ledger_entries.sort_by(|a, b| cmp_f64(&b.amount, &a.amount));
                 }
-                let voucher = Voucher::new(date, ref_no, ref_date,voucher_type_name, party_ledger_name, voucher_no, ledger_entries);
+                let voucher = Voucher::new(
+                    date,
+                    ref_no,
+                    ref_date,
+                    voucher_type_name,
+                    party_ledger_name,
+                    voucher_no,
+                    ledger_entries,
+                );
                 let tally_message = TallyMessage::new(voucher);
                 tally_messages.push(tally_message);
             }
@@ -420,9 +490,11 @@ pub async fn export_data(db: &Database, account_map_str: String, voucher_type_ma
         let body = Body::new(imp_data);
         let env = Envelope::new(body);
         let data = ExportData::new(env);
-        let options = xml_serde::Options { include_schema_location: false };
+        let options = xml_serde::Options {
+            include_schema_location: false,
+        };
         let res = xml_serde::to_string_custom(&data, options).unwrap();
-        let mut file = File::create(format!("tally_data-{}.xml",dt.0.to_string())).unwrap();
+        let mut file = File::create(format!("tally_data-{}.xml", dt.0.to_string())).unwrap();
         file.write_all(res.as_bytes()).unwrap();
     }
 }
