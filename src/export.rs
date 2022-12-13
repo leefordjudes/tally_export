@@ -257,6 +257,7 @@ fn get_query(
         //*
         doc! {"$match": {
             "date": { "$gte": from_date, "$lte": to_date },
+            "voucherType":"SALE",
             "$or":[
                 {"transactionMode": "cash"},
                 {"partyGst.regType": {
@@ -298,6 +299,7 @@ fn get_query(
     let cash_sale = vec![
         doc! {"$match": {
             "date": { "$gte": from_date, "$lte": to_date },
+            "voucherType":"SALE",
             "$or":[
                 {"transactionMode": "cash"},
                 {"partyGst.regType": {
@@ -405,7 +407,41 @@ pub async fn export_data(
         .await
         .unwrap();
     // let dates = get_dates(from_date, to_date);
-    let dates = vec![(from_date, to_date)];
+    // let dates = vec![(from_date, to_date)];
+    let dates = vec![
+        (
+            NaiveDate::from_ymd(2021, 8, 1),
+            NaiveDate::from_ymd(2021, 8, 31),
+        ),
+        (
+            NaiveDate::from_ymd(2021, 9, 1),
+            NaiveDate::from_ymd(2021, 9, 30),
+        ),
+        (
+            NaiveDate::from_ymd(2021, 10, 1),
+            NaiveDate::from_ymd(2021, 10, 31),
+        ),
+        (
+            NaiveDate::from_ymd(2021, 11, 1),
+            NaiveDate::from_ymd(2021, 11, 30),
+        ),
+        (
+            NaiveDate::from_ymd(2021, 12, 1),
+            NaiveDate::from_ymd(2021, 12, 31),
+        ),
+        (
+            NaiveDate::from_ymd(2022, 1, 1),
+            NaiveDate::from_ymd(2022, 1, 31),
+        ),
+        (
+            NaiveDate::from_ymd(2022, 2, 1),
+            NaiveDate::from_ymd(2022, 2, 28),
+        ),
+        (
+            NaiveDate::from_ymd(2022, 3, 1),
+            NaiveDate::from_ymd(2022, 3, 31),
+        ),
+    ];
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
@@ -415,11 +451,11 @@ pub async fn export_data(
             let vouchers = if collection == "sales" {
                 let cash_sale = get_voucher_data(db, collection, Some(true), dt.0, dt.1).await;
                 println!("cash sale: {:?}", cash_sale.len());
-                // cash_sale
-                let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
-                println!("credit sale:{:?}", credit_sale.len());
-                // credit_sale
-                [cash_sale.to_vec(), credit_sale.to_vec()].concat()
+                cash_sale
+                // let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
+                // println!("credit sale:{:?}", credit_sale.len());
+                // // credit_sale
+                // [cash_sale.to_vec(), credit_sale.to_vec()].concat()
             } else {
                 get_voucher_data(db, collection, None, dt.0, dt.1).await
             };
