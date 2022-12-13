@@ -253,7 +253,19 @@ fn get_query(
         doc! {"date": { "$gte": from_date, "$lte": to_date }}
     };
     let pipeline = vec![
-        doc! {"$match": match_doc},
+        // doc! {"$match": match_doc},
+        //*
+        doc! {"$match": {
+            "date": { "$gte": from_date, "$lte": to_date },
+            "$or":[
+                {"transactionMode": "cash"},
+                {"partyGst.regType": {
+                    "$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
+                }}
+            ],
+            "cashAmount": {"$exists": false},
+        }},
+        //*/
         doc! {"$project": {
                 "_id": 0,
                 "voucherNo": 1,
@@ -397,14 +409,16 @@ pub async fn export_data(
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
-        let collections = vec!["vouchers", "sales", "purchases", "gst_vouchers"];
-        // let collections = vec!["sales"];
+        // let collections = vec!["vouchers", "sales", "purchases", "gst_vouchers"];
+        let collections = vec!["sales"];
         for collection in collections {
             let vouchers = if collection == "sales" {
                 let cash_sale = get_voucher_data(db, collection, Some(true), dt.0, dt.1).await;
                 println!("cash sale: {:?}", cash_sale.len());
+                // cash_sale
                 let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
                 println!("credit sale:{:?}", credit_sale.len());
+                // credit_sale
                 [cash_sale.to_vec(), credit_sale.to_vec()].concat()
             } else {
                 get_voucher_data(db, collection, None, dt.0, dt.1).await
