@@ -210,6 +210,34 @@ fn get_name_map(map_str: String) -> Vec<NameMap> {
     alias
 }
 
+fn get_month_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
+    let days = (to_date - from_date).num_days() + 1;
+    let mut dates: Vec<(NaiveDate, NaiveDate)> = vec![];
+    if days == 1 {
+        dates.push((from_date, to_date))
+    } else if days > 1 {
+        let mut fdt = from_date;
+        let mut tdt = from_date;
+        for _ in (0..days).collect::<Vec<i64>>() {
+            dates.push((fdt, tdt));
+            fdt = NaiveDate::from_ymd(fdt.year(), fdt.month(), fdt.day()) + Duration::days(1);
+            tdt = fdt;
+        }
+    }
+    dates
+}
+
+pub async fn export_data1(
+    db: &Database,
+    account_map_str: String,
+    voucher_type_map_str: String,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) {
+    let dates = get_month_dates(from_date, to_date);
+    println!("dates: {:?}", &dates);
+}
+
 fn get_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
     let days = (to_date - from_date).num_days() + 1;
     let mut dates: Vec<(NaiveDate, NaiveDate)> = vec![];
@@ -233,46 +261,25 @@ fn get_query(
     from_date: NaiveDate,
     to_date: NaiveDate,
 ) -> Vec<Document> {
-    let date_time = from_date.and_time(NaiveTime::from_hms(0, 0, 0));
-    let from_date = Utc.from_utc_datetime(&date_time);
-    let date_time = to_date.and_time(NaiveTime::from_hms(0, 0, 0));
-    let to_date = Utc.from_utc_datetime(&date_time);
-
     let match_doc = if collection == "sales" {
         doc! {
-            "date": { "$gte": from_date, "$lte": to_date },
+            "date": { "$gte": from_date.to_string(), "$lte": to_date.to_string() },
             "$or": [
-                {"transactionMode": "credit"},
-                {"partyGst.regType": {
-                    "$in": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
-                }},
-                {"cashAmount":{"$exists": false}}
-            ],
+                { "acTrns.accountType" : { "$in" : [ "BANK_ACCOUNT", "BANK_OD_ACCOUNT", "EFT_ACCOUNT", "TRADE_RECEIVABLE", "ACCOUNT_RECEIVABLE" ] } },
+                { "partyGst.regType": {"$in": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"] }}
+            ]
         }
     } else {
-        doc! {"date": { "$gte": from_date, "$lte": to_date }}
+        doc! {"date": { "$gte": from_date.to_string(), "$lte": to_date.to_string() }}
     };
     let pipeline = vec![
-        // doc! {"$match": match_doc},
-        //*
-        doc! {"$match": {
-            "date": { "$gte": from_date, "$lte": to_date },
-            "voucherType":"SALE",
-            "$or":[
-                {"transactionMode": "cash"},
-                {"partyGst.regType": {
-                    "$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
-                }}
-            ],
-            "cashAmount": {"$exists": false},
-        }},
-        //*/
+        doc! {"$match": match_doc},
         doc! {"$project": {
                 "_id": 0,
                 "voucherNo": 1,
                 "voucherType": 1,
                 "refNo": 1,
-                "date": {"$dateToString": { "format": "%Y%m%d", "date": "$date" }},
+                "date": 1,
                 "billDate": {"$dateToString": { "format": "%Y%m%d", "date": "$billDate" }},
                 "trns": {
                     "$map": {
@@ -297,24 +304,17 @@ fn get_query(
         }},
     ];
     let cash_sale = vec![
-        doc! {"$match": {
-            "date": { "$gte": from_date, "$lte": to_date },
-            "voucherType":"SALE",
-            "$or":[
-                {"transactionMode": "cash"},
-                {"partyGst.regType": {
-                    "$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"],
-                }}
-            ],
-            "creditAmount":{"$exists": false},
-            "bankAmount":{"$exists": false},
-            "eftAmount":{"$exists": false}
-        }},
+        doc! {
+            "$match": {
+                "date": { "$gte": from_date.to_string(), "$lte": to_date.to_string() },
+                "acTrns.accountType" : { "$nin" : [ "BANK_ACCOUNT", "BANK_OD_ACCOUNT", "EFT_ACCOUNT", "TRADE_RECEIVABLE", "ACCOUNT_RECEIVABLE" ] },
+                "partyGst.regType": {"$nin": ["REGULAR", "SPECIAL_ECONOMIC_ZONE", "OVERSEAS", "DEEMED_EXPORT"] }
+            }
+        },
         doc! {"$project": {
             "_id": 0,
-            "voucherNo": 1,
+            "date": 1,
             "voucherType": 1,
-            "date": { "$dateToString": { "format": "%Y%m%d", "date": "$date" } },
             "acTrns": {
                 "$map": {
                     "input": {
@@ -336,26 +336,30 @@ fn get_query(
         doc! {"$unwind": "$acTrns"},
         doc! {"$set": {
             "account": "$acTrns.account",
-            "amount": "$acTrns.amount",
+            "amount": {"$toDouble":"$acTrns.amount"},
             "accountType": "$acTrns.accountType"
         }},
         doc! {"$group": {
-            "_id": { "voucherType": "$voucherType", "date": "$date", "account": "$account", "accountType": "$accountType" },
-            "amount": { "$sum": "$amount" }
+            "_id": { "date": "$date", "account": "$account" },
+            "amount": { "$sum": "$amount" },
+            "accountType": { "$last": "$accountType" },
+            "voucherType": { "$last": "$voucherType" }
         }},
         doc! {"$group": {
-            "_id": { "voucherType": "$_id.voucherType", "date": "$_id.date" },
-            "trns": { "$push": { "account": {"$toString":"$_id.account"}, "accountType": "$_id.accountType", "amount": {"$round":["$amount",2]} } }
+            "_id": "$_id.date",
+            "voucherType": { "$last": "$voucherType" },
+            "trns": { "$push": { "account": {"$toString":"$_id.account"}, "accountType": "$accountType", "amount": {"$round":["$amount",2]} } }
         }},
         doc! {"$project": {
             "_id": 0,
             "trns": 1,
-            "date": "$_id.date",
-            "voucherType": "$_id.voucherType"
+            "date": "$_id",
+            "voucherType": 1
         }},
-        doc! {"$sort": { "voucherType": 1, "date": 1 }},
+        doc! {"$sort": { "date": 1 }},
     ];
-    if collection == "sales" && cash.unwrap_or_default() == true {
+
+    if collection == "sales" && cash.unwrap_or_default() {
         cash_sale
     } else {
         pipeline
@@ -410,37 +414,53 @@ pub async fn export_data(
     // let dates = vec![(from_date, to_date)];
     let dates = vec![
         (
-            NaiveDate::from_ymd(2021, 8, 1),
-            NaiveDate::from_ymd(2021, 8, 31),
+            NaiveDate::from_ymd(2022, 4, 1),
+            NaiveDate::from_ymd(2022, 4, 30),
         ),
         (
-            NaiveDate::from_ymd(2021, 9, 1),
-            NaiveDate::from_ymd(2021, 9, 30),
+            NaiveDate::from_ymd(2022, 5, 1),
+            NaiveDate::from_ymd(2022, 5, 31),
         ),
-        (
-            NaiveDate::from_ymd(2021, 10, 1),
-            NaiveDate::from_ymd(2021, 10, 31),
-        ),
-        (
-            NaiveDate::from_ymd(2021, 11, 1),
-            NaiveDate::from_ymd(2021, 11, 30),
-        ),
-        (
-            NaiveDate::from_ymd(2021, 12, 1),
-            NaiveDate::from_ymd(2021, 12, 31),
-        ),
-        (
-            NaiveDate::from_ymd(2022, 1, 1),
-            NaiveDate::from_ymd(2022, 1, 31),
-        ),
-        (
-            NaiveDate::from_ymd(2022, 2, 1),
-            NaiveDate::from_ymd(2022, 2, 28),
-        ),
-        (
-            NaiveDate::from_ymd(2022, 3, 1),
-            NaiveDate::from_ymd(2022, 3, 31),
-        ),
+        // (
+        //     NaiveDate::from_ymd(2022, 6, 1),
+        //     NaiveDate::from_ymd(2022, 6, 30),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 7, 1),
+        //     NaiveDate::from_ymd(2022, 7, 31),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 8, 1),
+        //     NaiveDate::from_ymd(2022, 8, 31),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 9, 1),
+        //     NaiveDate::from_ymd(2022, 9, 30),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 10, 1),
+        //     NaiveDate::from_ymd(2022, 10, 31),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 11, 1),
+        //     NaiveDate::from_ymd(2022, 11, 30),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2022, 12, 1),
+        //     NaiveDate::from_ymd(2022, 12, 31),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2023, 01, 1),
+        //     NaiveDate::from_ymd(2023, 01, 31),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2023, 02, 1),
+        //     NaiveDate::from_ymd(2023, 02, 28),
+        // ),
+        // (
+        //     NaiveDate::from_ymd(2023, 03, 1),
+        //     NaiveDate::from_ymd(2023, 03, 31),
+        // ),
     ];
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
@@ -449,13 +469,13 @@ pub async fn export_data(
         let collections = vec!["sales"];
         for collection in collections {
             let vouchers = if collection == "sales" {
+                // cash_sale
                 let cash_sale = get_voucher_data(db, collection, Some(true), dt.0, dt.1).await;
-                println!("cash sale: {:?}", cash_sale.len());
-                cash_sale
-                // let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
-                // println!("credit sale:{:?}", credit_sale.len());
-                // // credit_sale
-                // [cash_sale.to_vec(), credit_sale.to_vec()].concat()
+                println!("cash only sale: {:?}", cash_sale.len());
+                // credit_sale
+                let credit_sale = get_voucher_data(db, collection, None, dt.0, dt.1).await;
+                println!("cash & credit sale:{:?}", credit_sale.len());
+                [cash_sale.to_vec(), credit_sale.to_vec()].concat()
             } else {
                 get_voucher_data(db, collection, None, dt.0, dt.1).await
             };

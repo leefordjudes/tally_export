@@ -1,10 +1,7 @@
-use std::{
-    path::PathBuf,
-    fs::read_to_string,
-};
-use clap::Parser;
 use chrono::NaiveDate;
+use clap::Parser;
 use mongodb::{options::ClientOptions, Client};
+use std::{fs::read_to_string, path::PathBuf};
 
 mod export;
 use export::*;
@@ -44,6 +41,5 @@ async fn main() {
     };
     let client = Client::with_options(client_options).unwrap();
     let db = client.database(&org);
-    let _  = export_data(&db, account_map, voucher_type_map, from_date, to_date).await;
-
+    let _ = export_data(&db, account_map, voucher_type_map, from_date, to_date).await;
 }
