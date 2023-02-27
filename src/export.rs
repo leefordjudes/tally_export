@@ -297,7 +297,8 @@ fn get_query(
                 "voucherNo": 1,
                 "voucherType": 1,
                 "refNo": 1,
-                "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$date"} }},
+                // "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$date"} }},
+                "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "2022-04-01"} }},
                 "billDate": {"$ifNull":[{"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$effDate"} }}, "$$REMOVE"]},
                 "trns": {
                     "$map": {
@@ -371,7 +372,8 @@ fn get_query(
         doc! {"$project": {
             "_id": 0,
             "trns": 1,
-            "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$_id"} }},
+            // "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$_id"} }},
+            "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "2022-04-01"} }},
             "voucherType": 1
         }},
         doc! {"$sort": { "date": 1 }},
