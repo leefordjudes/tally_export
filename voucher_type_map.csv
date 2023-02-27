@@ -1,9 +1,9 @@
 auditplus,tally
-Sales,Sales AP
-Credit Note,Credit Note AP
-Purchase,Purchase AP
-Debit Note,Debit Note AP
-Payment,Payment AP
-Receipt,Receipt AP
-Journal,Journal AP
-Contra,Contra AP
+Sales,Sales
+Credit Note,Credit Note
+Purchase,Purchase
+Debit Note,Debit Note
+Payment,Payment
+Receipt,Receipt
+Journal,Journal
+Contra,Contra

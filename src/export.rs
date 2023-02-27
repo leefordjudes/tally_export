@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use futures::TryStreamExt;
 use mongodb::{
@@ -6,8 +7,11 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, fs::File, io::Write};
-
+use std::{
+    cmp::Ordering,
+    fs::File,
+    io::{self, Write},
+};
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct ExportData {
@@ -293,8 +297,8 @@ fn get_query(
                 "voucherNo": 1,
                 "voucherType": 1,
                 "refNo": 1,
-                "date": 1,
-                "billDate": {"$dateToString": { "format": "%Y%m%d", "date": "$billDate" }},
+                "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$date"} }},
+                "billDate": {"$ifNull":[{"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$effDate"} }}, "$$REMOVE"]},
                 "trns": {
                     "$map": {
                         "input": {
@@ -367,7 +371,7 @@ fn get_query(
         doc! {"$project": {
             "_id": 0,
             "trns": 1,
-            "date": "$_id",
+            "date": {"$dateToString": { "format": "%Y%m%d", "date": {"$toDate": "$_id"} }},
             "voucherType": 1
         }},
         doc! {"$sort": { "date": 1 }},
@@ -413,6 +417,11 @@ pub async fn export_data(
     let account_map = get_name_map(account_map_str);
     let voucher_type_map = get_name_map(voucher_type_map_str);
 
+    let mut zip_buf = Vec::new();
+    let zip_options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Bzip2);
+    let mut zip_writer = zip::ZipWriter::new(io::Cursor::new(&mut zip_buf));
+
     let find_options = FindOptions::builder()
         .projection(doc! {"_id":0,"name":1,"id": {"$toString":"$_id"}})
         .build();
@@ -439,7 +448,7 @@ pub async fn export_data(
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
-        // let collections = vec!["vouchers", "sales", "purchases", "gst_vouchers"];
+        // let collections = vec!["sales", "credit_notes", "purchases", "debit_notes", "payments", "receipts", "contras", "journals"];
         let collections = vec!["sales"];
         for collection in collections {
             let vouchers = if collection == "sales" {
@@ -538,7 +547,18 @@ pub async fn export_data(
             include_schema_location: false,
         };
         let res = xml_serde::to_string_custom(&data, options).unwrap();
-        let mut file = File::create(format!("tally_data-{}.xml", dt.0.to_string())).unwrap();
-        file.write_all(res.as_bytes()).unwrap();
+        // let mut file = File::create(format!("tally_data-{}.xml", dt.0.to_string())).unwrap();
+        // file.write_all(res.as_bytes()).unwrap();
+        let out = res.as_bytes().to_owned();
+        if !out.is_empty() {
+            let data_file = format!("tally_data-{}.xml", dt.0.to_string());
+            println!("Adding {:?} to zip", &data_file);
+            zip_writer.start_file(data_file, zip_options).unwrap();
+            zip_writer.write_all(&out).unwrap();
+        }
     }
+    let out = zip_writer.finish().unwrap();
+    let bytes = Bytes::from_iter(out.into_inner().clone());
+    let mut file = File::create("tallydata.zip").unwrap();
+    file.write_all(&bytes).unwrap();
 }
