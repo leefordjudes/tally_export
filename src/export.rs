@@ -210,23 +210,6 @@ fn get_name_map(map_str: String) -> Vec<NameMap> {
     alias
 }
 
-fn get_month_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
-    let days = (to_date - from_date).num_days() + 1;
-    let mut dates: Vec<(NaiveDate, NaiveDate)> = vec![];
-    if days == 1 {
-        dates.push((from_date, to_date))
-    } else if days > 1 {
-        let mut fdt = from_date;
-        let mut tdt = from_date;
-        for _ in (0..days).collect::<Vec<i64>>() {
-            dates.push((fdt, tdt));
-            fdt = NaiveDate::from_ymd(fdt.year(), fdt.month(), fdt.day()) + Duration::days(1);
-            tdt = fdt;
-        }
-    }
-    dates
-}
-
 pub async fn export_data1(
     db: &Database,
     account_map_str: String,
@@ -236,6 +219,37 @@ pub async fn export_data1(
 ) {
     let dates = get_month_dates(from_date, to_date);
     println!("dates: {:?}", &dates);
+}
+
+fn get_month_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
+    let get_previous_date = |date: NaiveDate| -> NaiveDate { date + Duration::days(-1) };
+    let get_next_date = |date: NaiveDate| -> NaiveDate { date + Duration::days(1) };
+    let get_start_date = |date: NaiveDate| -> NaiveDate {
+        NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap()
+    };
+    let get_last_date = |date: NaiveDate| -> NaiveDate {
+        if date.month() == 12 {
+            NaiveDate::from_ymd_opt(date.year() + 1, 1, 1).unwrap() + Duration::days(-1)
+        } else {
+            NaiveDate::from_ymd_opt(date.year(), date.month() + 1, 1).unwrap() + Duration::days(-1)
+        }
+    };
+    let diff = (to_date - from_date).num_days() + 1;
+    let mut dates: Vec<(NaiveDate, NaiveDate)> = vec![];
+    if diff == 1 {
+        dates.push((from_date, to_date))
+    }
+    if diff > 1 {
+        let mut sd = get_start_date(from_date);
+        let mut ld = get_last_date(from_date);
+        dates.push((sd, ld));
+        while ld < to_date {
+            sd = get_next_date(ld);
+            ld = get_last_date(sd);
+            dates.push((sd, ld));
+        }
+    }
+    dates
 }
 
 fn get_dates(from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
@@ -411,57 +425,17 @@ pub async fn export_data(
         .await
         .unwrap();
     // let dates = get_dates(from_date, to_date);
-    // let dates = vec![(from_date, to_date)];
-    let dates = vec![
-        (
-            NaiveDate::from_ymd(2022, 4, 1),
-            NaiveDate::from_ymd(2022, 4, 30),
-        ),
-        (
-            NaiveDate::from_ymd(2022, 5, 1),
-            NaiveDate::from_ymd(2022, 5, 31),
-        ),
-        // (
-        //     NaiveDate::from_ymd(2022, 6, 1),
-        //     NaiveDate::from_ymd(2022, 6, 30),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 7, 1),
-        //     NaiveDate::from_ymd(2022, 7, 31),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 8, 1),
-        //     NaiveDate::from_ymd(2022, 8, 31),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 9, 1),
-        //     NaiveDate::from_ymd(2022, 9, 30),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 10, 1),
-        //     NaiveDate::from_ymd(2022, 10, 31),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 11, 1),
-        //     NaiveDate::from_ymd(2022, 11, 30),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2022, 12, 1),
-        //     NaiveDate::from_ymd(2022, 12, 31),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2023, 01, 1),
-        //     NaiveDate::from_ymd(2023, 01, 31),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2023, 02, 1),
-        //     NaiveDate::from_ymd(2023, 02, 28),
-        // ),
-        // (
-        //     NaiveDate::from_ymd(2023, 03, 1),
-        //     NaiveDate::from_ymd(2023, 03, 31),
-        // ),
-    ];
+    let dates = get_month_dates(from_date, to_date);
+    // let dates = vec![
+    //     (
+    //         NaiveDate::from_ymd(2022, 4, 1),
+    //         NaiveDate::from_ymd(2022, 4, 30),
+    //     ),
+    //     (
+    //         NaiveDate::from_ymd(2022, 5, 1),
+    //         NaiveDate::from_ymd(2022, 5, 31),
+    //     ),
+    // ];
     for dt in dates {
         println!("\n{:?}\n**********", &dt.0);
         let mut tally_messages = Vec::new();
